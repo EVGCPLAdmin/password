@@ -174,51 +174,26 @@ input[readonly]{background:#f4f7f4;color:var(--txt3);cursor:not-allowed}
 </div>
 
 <script>
-// ── AppScript API URL ─────────────────────────────────────────
-var API = 'https://script.google.com/macros/s/AKfycbxpDb8V01fGvFtsMWa_2tc8nYgqpPPyiFk-POgv4H4QYE4jqCZJ1CXshSE5EUj9auCD/exec';
+// ══════════════════════════════════════════════════════
+//  ⚠️  REPLACE WITH YOUR DEPLOYED APPS SCRIPT EXEC URL
+// ══════════════════════════════════════════════════════
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxpDb8V01fGvFtsMWa_2tc8nYgqpPPyiFk-POgv4H4QYE4jqCZJ1CXshSE5EUj9auCD/exec';
+// ══════════════════════════════════════════════════════
 
-var emp = {};
-var cbIndex = 0; // unique callback counter
-
-// ── JSONP call — bypasses CORS completely ─────────────────────
-function callAPI(params, onOk, onErr) {
-  var cbName = '_cb' + (++cbIndex) + '_' + Date.now();
-  params.callback = cbName;
-
-  // Build query string
-  var qs = Object.keys(params).map(function(k) {
-    return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
-  }).join('&');
-
-  // Timeout safety net (8 seconds)
-  var timer = setTimeout(function() {
-    delete window[cbName];
-    onErr(new Error('Request timed out'));
-  }, 8000);
-
-  // Register global callback
-  window[cbName] = function(data) {
-    clearTimeout(timer);
-    delete window[cbName];
-    var tag = document.getElementById(cbName);
-    if (tag) tag.parentNode.removeChild(tag);
-    onOk(data);
-  };
-
-  // Inject script tag
-  var script = document.createElement('script');
-  script.id  = cbName;
-  script.src = API + '?' + qs;
-  script.onerror = function() {
-    clearTimeout(timer);
-    delete window[cbName];
-    if (script.parentNode) script.parentNode.removeChild(script);
-    onErr(new Error('Script load failed'));
-  };
-  document.head.appendChild(script);
+// ── API helper — POST with Content-Type: text/plain ──
+// text/plain avoids CORS preflight — same pattern as onboarding app
+async function api(payload) {
+  const res = await fetch(SCRIPT_URL, {
+    method : 'POST',
+    body   : JSON.stringify(payload),
+    headers: { 'Content-Type': 'text/plain' }
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
 }
 
-// ── Helpers ───────────────────────────────────────────────────
+var emp = {};
+
 function busy(id, on) {
   var b = document.getElementById(id);
   b.classList.toggle('loading', on);
@@ -235,32 +210,31 @@ function clearAlert(id) { document.getElementById(id).classList.remove('show'); 
   if (el) el.addEventListener('input', function() { this.value = this.value.replace(/\D/g,''); });
 });
 
-// ── Step 1: Verify Employee ───────────────────────────────────
-function verifyEmployee() {
+async function verifyEmployee() {
   var email = document.getElementById('emailInput').value.trim();
   clearAlert('step1Alert');
   if (!email) { showAlert('step1Alert','step1Msg','Please enter your email address.'); return; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('step1Alert','step1Msg','Please enter a valid email address.'); return; }
   busy('verifyBtn', true);
-  callAPI({ action: 'validateEmployee', email: email },
-    function(res) {
-      busy('verifyBtn', false);
-      if (!res.success) { showAlert('step1Alert','step1Msg', res.message); return; }
-      emp = { email: email, name: res.name, ref: res.empRef };
-      document.getElementById('empAvatar').textContent = emp.name ? emp.name.charAt(0).toUpperCase() : '?';
-      document.getElementById('empName').textContent   = emp.name;
-      document.getElementById('empRef').textContent    = 'Ref: ' + emp.ref;
-      document.getElementById('emailReadonly').value   = emp.email;
-      document.getElementById('empStrip').classList.add('show');
-      document.getElementById('step1').style.display   = 'none';
-      document.getElementById('step2').style.display   = 'block';
-    },
-    function() { busy('verifyBtn', false); showAlert('step1Alert','step1Msg','Connection error. Please try again.'); }
-  );
+  try {
+    const res = await api({ action: 'validateEmployee', email: email });
+    busy('verifyBtn', false);
+    if (!res.success) { showAlert('step1Alert','step1Msg', res.message); return; }
+    emp = { email: email, name: res.name, ref: res.empRef };
+    document.getElementById('empAvatar').textContent = emp.name ? emp.name.charAt(0).toUpperCase() : '?';
+    document.getElementById('empName').textContent   = emp.name;
+    document.getElementById('empRef').textContent    = 'Ref: ' + emp.ref;
+    document.getElementById('emailReadonly').value   = emp.email;
+    document.getElementById('empStrip').classList.add('show');
+    document.getElementById('step1').style.display   = 'none';
+    document.getElementById('step2').style.display   = 'block';
+  } catch(e) {
+    busy('verifyBtn', false);
+    showAlert('step1Alert','step1Msg','Connection error: ' + e.message);
+  }
 }
 
-// ── Step 2: Save PIN ──────────────────────────────────────────
-function submitPin() {
+async function submitPin() {
   var cur = document.getElementById('currentPin').value.trim();
   var np  = document.getElementById('newPin').value.trim();
   var cp  = document.getElementById('confirmPin').value.trim();
@@ -271,18 +245,18 @@ function submitPin() {
   if (np !== cp)  { showAlert('step2Alert','step2Msg','New PIN and Confirm PIN do not match.'); return; }
   if (np === cur) { showAlert('step2Alert','step2Msg','New PIN must be different from Current PIN.'); return; }
   busy('setPinBtn', true);
-  callAPI({ action: 'setPin', email: emp.email, userName: emp.name, empRef: emp.ref, currentPin: cur, newPin: np },
-    function(res) {
-      busy('setPinBtn', false);
-      if (!res.success) { showAlert('step2Alert','step2Msg', res.message); return; }
-      document.getElementById('step2').style.display = 'none';
-      document.getElementById('successScreen').classList.add('show');
-    },
-    function() { busy('setPinBtn', false); showAlert('step2Alert','step2Msg','Connection error. Please try again.'); }
-  );
+  try {
+    const res = await api({ action: 'setPin', email: emp.email, userName: emp.name, empRef: emp.ref, currentPin: cur, newPin: np });
+    busy('setPinBtn', false);
+    if (!res.success) { showAlert('step2Alert','step2Msg', res.message); return; }
+    document.getElementById('step2').style.display = 'none';
+    document.getElementById('successScreen').classList.add('show');
+  } catch(e) {
+    busy('setPinBtn', false);
+    showAlert('step2Alert','step2Msg','Connection error: ' + e.message);
+  }
 }
 
-// ── Reset ─────────────────────────────────────────────────────
 function resetAll() {
   emp = {};
   ['emailInput','currentPin','newPin','confirmPin','emailReadonly'].forEach(function(id) {
