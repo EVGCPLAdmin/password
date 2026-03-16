@@ -25,7 +25,7 @@ const DEFAULT_PIN    = '1234';
 
 // ---------- ENTRY POINT ----------
 function doGet() {
-  return HtmlService.createHtmlOutputFromFile('Index')
+  return HtmlService.createHtmlOutputFromFile('index')
     .setTitle('Evergreen Enterprises — User PIN Management')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
